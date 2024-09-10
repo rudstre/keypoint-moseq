@@ -301,7 +301,6 @@ def setup_project(
     deeplabcut_config=None,
     sleap_file=None,
     nwb_file=None,
-    dannce_file=None,
     freipose_config=None,
     overwrite=False,
     **options,
@@ -410,16 +409,6 @@ def setup_project(
                 skeleton = [[bodyparts[i], bodyparts[j]] for i, j in edges]
                 nwb_options["skeleton"] = skeleton
         options = {**nwb_options, **options}
-
-    elif dannce_file is not None:
-        dannce_options = {}
-        with h5py.File(dannce_file, 'r') as skeleton:
-            bodyparts = [name.decode('utf-8') for name in skeleton['/node_names'][()]]
-            skeleton = [[name.decode('utf-8') for name in edge] for edge in skeleton['/edge_names'][()]]
-            dannce_options["bodyparts"] = bodyparts
-            dannce_options["use_bodyparts"] = bodyparts
-            dannce_options["skeleton"] = skeleton
-        options = {**dannce_options, **options}
 
     elif freipose_config is not None:
         freipose_options = {}
@@ -1005,7 +994,6 @@ def load_keypoints(
         "nwb": (_nwb_loader, [".nwb"]),
         "facemap": (_facemap_loader, [".h5", ".hdf5"]),
         "freipose": (_freipose_loader, [".json"]),
-        "dannce": (_dannce_loader, [".h5", ".hdf5"]),
     }
 
     # get format-specific loader and extensions
@@ -1239,44 +1227,6 @@ def _freipose_loader(filepath, name):
     coordinates = {name: coords}
     confidences = {name: np.ones_like(coords[..., 0])}
     return coordinates, confidences, None
-
-
-def _dannce_loader(filepath, filename):
-    """Load keypoints from DANNCE HDF5 files."""
-    try:
-        # Open the HDF5 file in read-only mode
-        with h5py.File(filepath, 'r') as f:
-            # Check if the 'keypoints' dataset exists
-            if '/pose/keypoints' not in f:
-                raise KeyError(f"Dataset '/pose/keypoints' not found in file {filepath}")
-            
-            # Read the 'keypoints' dataset
-            keypoints = f['/pose/keypoints'][()]
-            
-            # Ensure the keypoints dataset has the correct dimensions (n_bodyparts, 3, n_frames)
-            assert keypoints.ndim == 3, "Keypoints dataset must have 3 dimensions"
-            assert keypoints.shape[1] == 3, "Second dimension of keypoints must be 3 (x, y, z coordinates)"
-            
-            # Check if the 'names' attribute exists
-            if 'names' not in f['/pose/keypoints'].attrs:
-                raise KeyError(f"Attribute 'names' not found in dataset '/pose/keypoints'")
-            
-            # Read the 'names' attribute and decode the byte strings
-            bodyparts = [bp.decode('utf-8') for bp in f['/pose/keypoints'].attrs['names']]
-            
-            # Ensure the number of bodyparts matches the first dimension of the keypoints dataset
-            assert len(bodyparts) == keypoints.shape[0], "The number of body part names must match the first dimension of the keypoints dataset"
-            
-            # Initialize the coordinates dictionary
-            # Transpose the keypoints array to match the required shape (n_frames, n_bodyparts, 2 or 3)
-            coordinates = {filename: np.transpose(keypoints, (2, 0, 1))}
-            confidences = np.ones_like(keypoints[..., 0])
-
-        return coordinates, confidences, bodyparts
-    
-    except (KeyError, AssertionError) as e:
-        print(f"Error: {e}")
-        return None, None, None
 
 
 def save_hdf5(filepath, save_dict, datapath=None):
